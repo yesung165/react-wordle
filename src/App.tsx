@@ -33,6 +33,7 @@ import {
   WIN_MESSAGES,
   WORD_NOT_FOUND_MESSAGE,
 } from './constants/strings'
+import { WORDS } from './constants/wordlist'
 import { useAlert } from './context/AlertContext'
 import { isInAppBrowser } from './lib/browser'
 import {
@@ -46,7 +47,6 @@ import {
   findFirstUnusedReveal,
   getGameDate,
   getIsLatestGame,
-  isWinningWord,
   isWordInWordList,
   setGameDate,
   solution,
@@ -109,15 +109,21 @@ function App() {
       : false
   )
 
+  type GameMode = 'title' | 'original' | 'timeAttack'
+  const [gameMode, setGameMode] = useState<GameMode>('title')
+  const [activeSolution, setActiveSolution] = useState(solution)
+  const [countdown, setCountdown] = useState('')
+  const [timeRemaining, setTimeRemaining] = useState(60000)
+  const [isTimerRunning, setIsTimerRunning] = useState(false)
+
   useEffect(() => {
-    // if no game state on load,
-    // show the user the how-to info modal
-    if (!loadGameStateFromLocalStorage(true)) {
+    // Show the welcome instructions only after entering Original Mode.
+    if (gameMode === 'original' && !loadGameStateFromLocalStorage(true)) {
       setTimeout(() => {
         setIsInfoModalOpen(true)
       }, WELCOME_INFO_MODAL_MS)
     }
-  })
+  }, [gameMode])
 
   useEffect(() => {
     DISCOURAGE_INAPP_BROWSERS &&
@@ -166,10 +172,13 @@ function App() {
   }
 
   useEffect(() => {
-    saveGameStateToLocalStorage(getIsLatestGame(), { guesses, solution })
-  }, [guesses])
+    if (gameMode === 'original') {
+      saveGameStateToLocalStorage(getIsLatestGame(), { guesses, solution })
+    }
+  }, [guesses, gameMode])
 
   useEffect(() => {
+    if (gameMode !== 'original') return
     if (isGameWon) {
       const winMessage =
         WIN_MESSAGES[Math.floor(Math.random() * WIN_MESSAGES.length)]
@@ -186,26 +195,100 @@ function App() {
         setIsStatsModalOpen(true)
       }, (solution.length + 1) * REVEAL_TIME_MS)
     }
-  }, [isGameWon, isGameLost, showSuccessAlert])
+  }, [isGameWon, isGameLost, showSuccessAlert, gameMode])
+
+  useEffect(() => {
+    if (gameMode !== 'timeAttack' || !countdown) return
+    const delay = countdown === 'GO!' ? 500 : 1000
+    const next = countdown === '2' ? '1' : countdown === '1' ? 'GO!' : ''
+    if (countdown === 'GO!') setIsTimerRunning(true)
+    const timeout = window.setTimeout(() => setCountdown(next), delay)
+    return () => window.clearTimeout(timeout)
+  }, [countdown, gameMode])
+
+  useEffect(() => {
+    if (
+      gameMode !== 'timeAttack' ||
+      !isTimerRunning ||
+      isGameWon ||
+      isGameLost
+    ) {
+      return
+    }
+    const deadline = Date.now() + 60000
+    const interval = window.setInterval(() => {
+      const remaining = Math.max(0, deadline - Date.now())
+      setTimeRemaining(remaining)
+      if (remaining === 0) setIsGameLost(true)
+    }, 10)
+    return () => window.clearInterval(interval)
+  }, [isTimerRunning, gameMode, isGameWon, isGameLost])
+
+  const startOriginalMode = () => {
+    setGameMode('original')
+    setActiveSolution(solution)
+    const saved = loadGameStateFromLocalStorage(getIsLatestGame())
+    const restoredGuesses = saved?.solution === solution ? saved.guesses : []
+    setGuesses(restoredGuesses)
+    setCurrentGuess('')
+    setIsGameWon(restoredGuesses.includes(solution))
+    setIsGameLost(
+      restoredGuesses.length === MAX_CHALLENGES &&
+        !restoredGuesses.includes(solution)
+    )
+    setCountdown('')
+  }
+
+  const startTimeAttack = () => {
+    const randomWord =
+      WORDS[Math.floor(Math.random() * WORDS.length)].toUpperCase()
+    setActiveSolution(randomWord)
+    setGuesses([])
+    setCurrentGuess('')
+    setIsGameWon(false)
+    setIsGameLost(false)
+    setTimeRemaining(60000)
+    setIsTimerRunning(false)
+    setCountdown('2')
+    setGameMode('timeAttack')
+  }
+
+  const returnToTitle = () => {
+    setCountdown('')
+    setIsTimerRunning(false)
+    setGameMode('title')
+  }
 
   const onChar = (value: string) => {
     if (
       unicodeLength(`${currentGuess}${value}`) <= solution.length &&
       guesses.length < MAX_CHALLENGES &&
-      !isGameWon
+      !isGameWon &&
+      !isGameLost &&
+      (gameMode !== 'timeAttack' || isTimerRunning)
     ) {
       setCurrentGuess(`${currentGuess}${value}`)
     }
   }
 
   const onDelete = () => {
+    if (
+      isGameWon ||
+      isGameLost ||
+      (gameMode === 'timeAttack' && !isTimerRunning)
+    )
+      return
     setCurrentGuess(
       new GraphemeSplitter().splitGraphemes(currentGuess).slice(0, -1).join('')
     )
   }
 
   const onEnter = () => {
-    if (isGameWon || isGameLost) {
+    if (
+      isGameWon ||
+      isGameLost ||
+      (gameMode === 'timeAttack' && !isTimerRunning)
+    ) {
       return
     }
 
@@ -224,7 +307,7 @@ function App() {
     }
 
     // enforce hard mode - all guesses must contain all previously revealed letters
-    if (isHardMode) {
+    if (isHardMode && gameMode === 'original') {
       const firstMissingReveal = findFirstUnusedReveal(currentGuess, guesses)
       if (firstMissingReveal) {
         setCurrentRowClass('jiggle')
@@ -241,7 +324,7 @@ function App() {
       setIsRevealing(false)
     }, REVEAL_TIME_MS * solution.length)
 
-    const winningWord = isWinningWord(currentGuess)
+    const winningWord = currentGuess === activeSolution
 
     if (
       unicodeLength(currentGuess) === solution.length &&
@@ -252,24 +335,53 @@ function App() {
       setCurrentGuess('')
 
       if (winningWord) {
-        if (isLatestGame) {
+        if (isLatestGame && gameMode === 'original') {
           setStats(addStatsForCompletedGame(stats, guesses.length))
         }
         return setIsGameWon(true)
       }
 
       if (guesses.length === MAX_CHALLENGES - 1) {
-        if (isLatestGame) {
+        if (isLatestGame && gameMode === 'original') {
           setStats(addStatsForCompletedGame(stats, guesses.length + 1))
         }
         setIsGameLost(true)
-        showErrorAlert(CORRECT_WORD_MESSAGE(solution), {
-          persist: true,
-          delayMs: REVEAL_TIME_MS * solution.length + 1,
-        })
+        if (gameMode === 'original') {
+          showErrorAlert(CORRECT_WORD_MESSAGE(solution), {
+            persist: true,
+            delayMs: REVEAL_TIME_MS * solution.length + 1,
+          })
+        }
       }
     }
   }
+
+  if (gameMode === 'title') {
+    return (
+      <Div100vh>
+        <div className="mode-title-screen">
+          <h1>WORDLE</h1>
+          <p>Choose your game mode</p>
+          <button onClick={startOriginalMode}>Original Mode</button>
+          <button onClick={startTimeAttack}>Time Attack Mode</button>
+        </div>
+      </Div100vh>
+    )
+  }
+
+  const timerColor = (() => {
+    if (timeRemaining > 10000) return '#16a34a'
+    const progress = Math.max(0, Math.min(1, timeRemaining / 10000))
+    const start = { r: 220, g: 38, b: 38 }
+    const end = { r: 22, g: 163, b: 74 }
+    const channel = (a: number, b: number) => Math.round(a + (b - a) * progress)
+    return `rgb(${channel(start.r, end.r)}, ${channel(
+      start.g,
+      end.g
+    )}, ${channel(start.b, end.b)})`
+  })()
+
+  const formattedTime = `${(timeRemaining / 1000).toFixed(3)}`
 
   return (
     <Div100vh>
@@ -281,7 +393,12 @@ function App() {
           setIsSettingsModalOpen={setIsSettingsModalOpen}
         />
 
-        {!isLatestGame && (
+        {gameMode === 'timeAttack' && (
+          <div className="time-attack-timer" style={{ color: timerColor }}>
+            {countdown ? countdown : formattedTime}
+          </div>
+        )}
+        {gameMode === 'original' && !isLatestGame && (
           <div className="flex items-center justify-center">
             <ClockIcon className="h-6 w-6 stroke-gray-600 dark:stroke-gray-300" />
             <p className="text-base text-gray-600 dark:text-gray-300">
@@ -293,7 +410,7 @@ function App() {
         <div className="mx-auto flex w-full grow flex-col px-1 pt-2 pb-8 sm:px-6 md:max-w-7xl lg:px-8 short:pb-2 short:pt-2">
           <div className="flex grow flex-col justify-center pb-6 short:pb-2">
             <Grid
-              solution={solution}
+              solution={activeSolution}
               guesses={guesses}
               currentGuess={currentGuess}
               isRevealing={isRevealing}
@@ -304,7 +421,7 @@ function App() {
             onChar={onChar}
             onDelete={onDelete}
             onEnter={onEnter}
-            solution={solution}
+            solution={activeSolution}
             guesses={guesses}
             isRevealing={isRevealing}
           />
@@ -315,7 +432,7 @@ function App() {
           <StatsModal
             isOpen={isStatsModalOpen}
             handleClose={() => setIsStatsModalOpen(false)}
-            solution={solution}
+            solution={activeSolution}
             guesses={guesses}
             gameStats={stats}
             isLatestGame={isLatestGame}
@@ -359,6 +476,20 @@ function App() {
             isHighContrastMode={isHighContrastMode}
             handleHighContrastMode={handleHighContrastMode}
           />
+          {gameMode === 'timeAttack' && (isGameWon || isGameLost) && (
+            <div className="time-attack-result">
+              <div>
+                <h2>{isGameWon ? 'Congratulations!' : "Time's up!"}</h2>
+                <p>
+                  {isGameWon
+                    ? 'You found the word!'
+                    : `The word was ${activeSolution}.`}
+                </p>
+                <button onClick={startTimeAttack}>Retry</button>
+                <button onClick={returnToTitle}>Title</button>
+              </div>
+            </div>
+          )}
           <AlertContainer />
         </div>
       </div>

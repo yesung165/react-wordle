@@ -1,3 +1,92 @@
 html.dark {
   background-color: rgb(15, 23, 42);
 }
+
+.mode-title-screen {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 2rem;
+  color: #111827;
+}
+
+.dark .mode-title-screen {
+  color: #f9fafb;
+}
+
+.mode-title-screen h1 {
+  margin: 0 0 0.5rem;
+  font-size: 3rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.mode-title-screen p {
+  margin: 0 0 1rem;
+  color: #6b7280;
+}
+
+.mode-title-screen button,
+.time-attack-result button {
+  min-width: 220px;
+  border: 1px solid #9ca3af;
+  border-radius: 0.375rem;
+  padding: 0.75rem 1.25rem;
+  background: #fff;
+  color: #111827;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mode-title-screen button:hover,
+.time-attack-result button:hover {
+  background: #f3f4f6;
+}
+
+.time-attack-timer {
+  min-height: 3.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.time-attack-result {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.time-attack-result > div {
+  width: min(100%, 24rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  border-radius: 0.5rem;
+  padding: 2rem;
+  background: #fff;
+  color: #111827;
+  text-align: center;
+}
+
+.time-attack-result h2 {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+
+.time-attack-result p {
+  margin: 0 0 0.5rem;
+}
