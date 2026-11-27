@@ -64,6 +64,7 @@ export const Keyboard = ({
             onClick={onClick}
             status={charStatuses[key]}
             isRevealing={isRevealing}
+            solutionLength={solution.length}
           />
         ))}
       </div>
@@ -75,6 +76,7 @@ export const Keyboard = ({
             onClick={onClick}
             status={charStatuses[key]}
             isRevealing={isRevealing}
+            solutionLength={solution.length}
           />
         ))}
       </div>
@@ -89,6 +91,7 @@ export const Keyboard = ({
             onClick={onClick}
             status={charStatuses[key]}
             isRevealing={isRevealing}
+            solutionLength={solution.length}
           />
         ))}
         <Key width={65.4} value="DELETE" onClick={onClick}>
