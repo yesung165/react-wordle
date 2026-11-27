@@ -31,12 +31,13 @@ import {
   NOT_ENOUGH_LETTERS_MESSAGE,
   SHARE_FAILURE_TEXT,
   WIN_MESSAGES,
+  WORD_CHECK_FAILED_MESSAGE,
   WORD_NOT_FOUND_MESSAGE,
 } from './constants/strings'
 import { WORDS } from './constants/wordlist'
 import { useAlert } from './context/AlertContext'
 import { isInAppBrowser } from './lib/browser'
-import { getRandomLevelWord } from './lib/levelWordApi'
+import { getRandomLevelWord, isValidLevelWord } from './lib/levelWordApi'
 import {
   getStoredIsHighContrastMode,
   loadGameStateFromLocalStorage,
@@ -121,6 +122,7 @@ function App() {
   const [wordLength, setWordLength] = useState(5) // length the player picked
   const [isLoadingWord, setIsLoadingWord] = useState(false) // waiting for the API
   const [wordLoadError, setWordLoadError] = useState(false) // API request failed
+  const [isCheckingWord, setIsCheckingWord] = useState(false) // waiting for the dictionary API
   // number of boxes per row: the picked length in word length mode, otherwise the answer's length
   const currentWordLength =
     gameMode === 'wordLength' ? wordLength : activeSolution.length
@@ -303,7 +305,8 @@ function App() {
       !isGameLost &&
       (gameMode !== 'timeAttack' || isTimerRunning) &&
       // in word length mode, block typing until the answer has loaded
-      (gameMode !== 'wordLength' || activeSolution !== '')
+      (gameMode !== 'wordLength' || activeSolution !== '') &&
+      !isCheckingWord
     ) {
       setCurrentGuess(`${currentGuess}${value}`)
     }
@@ -313,7 +316,8 @@ function App() {
     if (
       isGameWon ||
       isGameLost ||
-      (gameMode === 'timeAttack' && !isTimerRunning)
+      (gameMode === 'timeAttack' && !isTimerRunning) ||
+      isCheckingWord
     )
       return
     setCurrentGuess(
@@ -321,11 +325,12 @@ function App() {
     )
   }
 
-  const onEnter = () => {
+  const onEnter = async () => {
     if (
       isGameWon ||
       isGameLost ||
-      (gameMode === 'timeAttack' && !isTimerRunning)
+      (gameMode === 'timeAttack' && !isTimerRunning) ||
+      isCheckingWord
     ) {
       return
     }
@@ -337,12 +342,31 @@ function App() {
       })
     }
 
-    // guess checking for word length mode isn't connected yet
     if (gameMode === 'wordLength') {
-      return
-    }
-
-    if (!isWordInWordList(currentGuess)) {
+      // the answer is always accepted, even if the dictionary doesn't know it
+      if (currentGuess !== activeSolution) {
+        // check the guess with the dictionary API; typing is blocked while waiting
+        setIsCheckingWord(true)
+        let isValid: boolean
+        try {
+          isValid = await isValidLevelWord(currentGuess)
+        } catch (e) {
+          console.log(e)
+          setCurrentRowClass('jiggle')
+          return showErrorAlert(WORD_CHECK_FAILED_MESSAGE, {
+            onClose: clearCurrentRowClass,
+          })
+        } finally {
+          setIsCheckingWord(false)
+        }
+        if (!isValid) {
+          setCurrentRowClass('jiggle')
+          return showErrorAlert(WORD_NOT_FOUND_MESSAGE, {
+            onClose: clearCurrentRowClass,
+          })
+        }
+      }
+    } else if (!isWordInWordList(currentGuess)) {
       setCurrentRowClass('jiggle')
       return showErrorAlert(WORD_NOT_FOUND_MESSAGE, {
         onClose: clearCurrentRowClass,
@@ -365,12 +389,12 @@ function App() {
     // chars have been revealed
     setTimeout(() => {
       setIsRevealing(false)
-    }, REVEAL_TIME_MS * solution.length)
+    }, REVEAL_TIME_MS * currentWordLength)
 
     const winningWord = currentGuess === activeSolution
 
     if (
-      unicodeLength(currentGuess) === solution.length &&
+      unicodeLength(currentGuess) === currentWordLength &&
       guesses.length < MAX_CHALLENGES &&
       !isGameWon
     ) {
