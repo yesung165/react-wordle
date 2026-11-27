@@ -115,6 +115,7 @@ function App() {
   const [countdown, setCountdown] = useState('')
   const [timeRemaining, setTimeRemaining] = useState(60000)
   const [isTimerRunning, setIsTimerRunning] = useState(false)
+  const [isWordLengthMenuOpen, setIsWordLengthMenuOpen] = useState(false)
 
   useEffect(() => {
     // Show the welcome instructions only after entering Original Mode.
@@ -361,9 +362,26 @@ function App() {
       <Div100vh>
         <div className="mode-title-screen">
           <h1>WORDLE</h1>
-          <p>Choose your game mode</p>
-          <button onClick={startOriginalMode}>Original Mode</button>
-          <button onClick={startTimeAttack}>Time Attack Mode</button>
+          {isWordLengthMenuOpen ? (
+            <>
+              <p>Choose a word length</p>
+              {[4, 5, 6, 7].map((length) => (
+                <button key={length}>{length} Letters</button>
+              ))}
+              <button onClick={() => setIsWordLengthMenuOpen(false)}>
+                Back
+              </button>
+            </>
+          ) : (
+            <>
+              <p>Choose your game mode</p>
+              <button onClick={startOriginalMode}>Original Mode</button>
+              <button onClick={startTimeAttack}>Time Attack Mode</button>
+              <button onClick={() => setIsWordLengthMenuOpen(true)}>
+                Word Length
+              </button>
+            </>
+          )}
         </div>
       </Div100vh>
     )
