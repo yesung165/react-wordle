@@ -599,6 +599,26 @@ function App() {
               </div>
             </div>
           )}
+          {/* word length mode result, shown after the last row finishes flipping */}
+          {gameMode === 'wordLength' &&
+            (isGameWon || isGameLost) &&
+            !isRevealing && (
+              <div className="time-attack-result">
+                <div>
+                  <h2>{isGameWon ? 'Congratulations!' : 'Out of guesses!'}</h2>
+                  <p>
+                    {isGameWon
+                      ? `You found the ${wordLength}-letter word!`
+                      : `The word was ${activeSolution}.`}
+                  </p>
+                  {/* new word of the same length */}
+                  <button onClick={() => startWordLengthMode(wordLength)}>
+                    Play Again
+                  </button>
+                  <button onClick={returnToTitle}>Title</button>
+                </div>
+              </div>
+            )}
           <AlertContainer />
         </div>
       </div>
