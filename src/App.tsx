@@ -109,13 +109,16 @@ function App() {
       : false
   )
 
-  type GameMode = 'title' | 'original' | 'timeAttack'
+  type GameMode = 'title' | 'original' | 'timeAttack' | 'wordLength'
   const [gameMode, setGameMode] = useState<GameMode>('title')
   const [activeSolution, setActiveSolution] = useState(solution)
   const [countdown, setCountdown] = useState('')
   const [timeRemaining, setTimeRemaining] = useState(60000)
   const [isTimerRunning, setIsTimerRunning] = useState(false)
   const [isWordLengthMenuOpen, setIsWordLengthMenuOpen] = useState(false)
+  const [wordLength, setWordLength] = useState(5)
+  const currentWordLength =
+    gameMode === 'wordLength' ? wordLength : activeSolution.length
 
   useEffect(() => {
     // Show the welcome instructions only after entering Original Mode.
@@ -254,6 +257,18 @@ function App() {
     setGameMode('timeAttack')
   }
 
+  const startWordLengthMode = (length: number) => {
+    setWordLength(length)
+    setGuesses([])
+    setCurrentGuess('')
+    setIsGameWon(false)
+    setIsGameLost(false)
+    setCountdown('')
+    setIsTimerRunning(false)
+    setIsWordLengthMenuOpen(false)
+    setGameMode('wordLength')
+  }
+
   const returnToTitle = () => {
     setCountdown('')
     setIsTimerRunning(false)
@@ -262,7 +277,7 @@ function App() {
 
   const onChar = (value: string) => {
     if (
-      unicodeLength(`${currentGuess}${value}`) <= solution.length &&
+      unicodeLength(`${currentGuess}${value}`) <= currentWordLength &&
       guesses.length < MAX_CHALLENGES &&
       !isGameWon &&
       !isGameLost &&
@@ -293,11 +308,16 @@ function App() {
       return
     }
 
-    if (!(unicodeLength(currentGuess) === solution.length)) {
+    if (!(unicodeLength(currentGuess) === currentWordLength)) {
       setCurrentRowClass('jiggle')
       return showErrorAlert(NOT_ENOUGH_LETTERS_MESSAGE, {
         onClose: clearCurrentRowClass,
       })
+    }
+
+    // Word Length Mode has no answer word yet, so guesses can't be submitted
+    if (gameMode === 'wordLength') {
+      return
     }
 
     if (!isWordInWordList(currentGuess)) {
@@ -366,7 +386,12 @@ function App() {
             <>
               <p>Choose a word length</p>
               {[4, 5, 6, 7].map((length) => (
-                <button key={length}>{length} Letters</button>
+                <button
+                  key={length}
+                  onClick={() => startWordLengthMode(length)}
+                >
+                  {length} Letters
+                </button>
               ))}
               <button onClick={() => setIsWordLengthMenuOpen(false)}>
                 Back
@@ -429,6 +454,7 @@ function App() {
           <div className="flex grow flex-col justify-center pb-6 short:pb-2">
             <Grid
               solution={activeSolution}
+              solutionLength={currentWordLength}
               guesses={guesses}
               currentGuess={currentGuess}
               isRevealing={isRevealing}
