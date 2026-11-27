@@ -36,6 +36,7 @@ import {
 import { WORDS } from './constants/wordlist'
 import { useAlert } from './context/AlertContext'
 import { isInAppBrowser } from './lib/browser'
+import { getRandomLevelWord } from './lib/levelWordApi'
 import {
   getStoredIsHighContrastMode,
   loadGameStateFromLocalStorage,
@@ -115,8 +116,12 @@ function App() {
   const [countdown, setCountdown] = useState('')
   const [timeRemaining, setTimeRemaining] = useState(60000)
   const [isTimerRunning, setIsTimerRunning] = useState(false)
-  const [isWordLengthMenuOpen, setIsWordLengthMenuOpen] = useState(false)
-  const [wordLength, setWordLength] = useState(5)
+  // word length mode state
+  const [isWordLengthMenuOpen, setIsWordLengthMenuOpen] = useState(false) // length menu showing on title screen
+  const [wordLength, setWordLength] = useState(5) // length the player picked
+  const [isLoadingWord, setIsLoadingWord] = useState(false) // waiting for the API
+  const [wordLoadError, setWordLoadError] = useState(false) // API request failed
+  // number of boxes per row: the picked length in word length mode, otherwise the answer's length
   const currentWordLength =
     gameMode === 'wordLength' ? wordLength : activeSolution.length
 
@@ -257,8 +262,12 @@ function App() {
     setGameMode('timeAttack')
   }
 
-  const startWordLengthMode = (length: number) => {
+  // start a new word length game: reset the board, then fetch an answer of the picked length
+  const startWordLengthMode = async (length: number) => {
     setWordLength(length)
+    setActiveSolution('') // no answer until the API responds
+    setWordLoadError(false)
+    setIsLoadingWord(true)
     setGuesses([])
     setCurrentGuess('')
     setIsGameWon(false)
@@ -267,6 +276,17 @@ function App() {
     setIsTimerRunning(false)
     setIsWordLengthMenuOpen(false)
     setGameMode('wordLength')
+
+    // ask random word API for the answer; show an error with a retry link if it fails
+    try {
+      const word = await getRandomLevelWord(length)
+      setActiveSolution(word)
+    } catch (e) {
+      console.log(e)
+      setWordLoadError(true)
+    } finally {
+      setIsLoadingWord(false)
+    }
   }
 
   const returnToTitle = () => {
@@ -281,7 +301,9 @@ function App() {
       guesses.length < MAX_CHALLENGES &&
       !isGameWon &&
       !isGameLost &&
-      (gameMode !== 'timeAttack' || isTimerRunning)
+      (gameMode !== 'timeAttack' || isTimerRunning) &&
+      // in word length mode, block typing until the answer has loaded
+      (gameMode !== 'wordLength' || activeSolution !== '')
     ) {
       setCurrentGuess(`${currentGuess}${value}`)
     }
@@ -315,7 +337,7 @@ function App() {
       })
     }
 
-    // Word Length Mode has no answer word yet, so guesses can't be submitted
+    // guess checking for word length mode isn't connected yet
     if (gameMode === 'wordLength') {
       return
     }
@@ -382,6 +404,7 @@ function App() {
       <Div100vh>
         <div className="mode-title-screen">
           <h1>WORDLE</h1>
+          {/* title screen shows either the length menu or the mode list */}
           {isWordLengthMenuOpen ? (
             <>
               <p>Choose a word length</p>
@@ -439,6 +462,24 @@ function App() {
         {gameMode === 'timeAttack' && (
           <div className="time-attack-timer" style={{ color: timerColor }}>
             {countdown ? countdown : formattedTime}
+          </div>
+        )}
+        {/* word length mode: loading message, or an error with a retry link */}
+        {gameMode === 'wordLength' && (isLoadingWord || wordLoadError) && (
+          <div className="flex items-center justify-center gap-2 text-gray-600 dark:text-gray-300">
+            {isLoadingWord ? (
+              <p>Loading word...</p>
+            ) : (
+              <>
+                <p>Couldn't load a word.</p>
+                <button
+                  className="underline"
+                  onClick={() => startWordLengthMode(wordLength)}
+                >
+                  Try again
+                </button>
+              </>
+            )}
           </div>
         )}
         {gameMode === 'original' && !isLatestGame && (
