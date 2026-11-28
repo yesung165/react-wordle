@@ -5,6 +5,7 @@ import { EmptyRow } from './EmptyRow'
 
 type Props = {
   solution: string
+  solutionLength?: number
   guesses: string[]
   currentGuess: string
   isRevealing?: boolean
@@ -13,6 +14,7 @@ type Props = {
 
 export const Grid = ({
   solution,
+  solutionLength = solution.length,
   guesses,
   currentGuess,
   isRevealing,
@@ -34,10 +36,14 @@ export const Grid = ({
         />
       ))}
       {guesses.length < MAX_CHALLENGES && (
-        <CurrentRow guess={currentGuess} className={currentRowClassName} />
+        <CurrentRow
+          guess={currentGuess}
+          className={currentRowClassName}
+          solutionLength={solutionLength}
+        />
       )}
       {empties.map((_, i) => (
-        <EmptyRow key={i} />
+        <EmptyRow key={i} solutionLength={solutionLength} />
       ))}
     </>
   )
