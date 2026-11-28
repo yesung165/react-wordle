@@ -31,11 +31,13 @@ import {
   NOT_ENOUGH_LETTERS_MESSAGE,
   SHARE_FAILURE_TEXT,
   WIN_MESSAGES,
+  WORD_CHECK_FAILED_MESSAGE,
   WORD_NOT_FOUND_MESSAGE,
 } from './constants/strings'
 import { WORDS } from './constants/wordlist'
 import { useAlert } from './context/AlertContext'
 import { isInAppBrowser } from './lib/browser'
+import { getRandomLevelWord, isValidLevelWord } from './lib/levelWordApi'
 import {
   getStoredIsHighContrastMode,
   loadGameStateFromLocalStorage,
@@ -109,12 +111,21 @@ function App() {
       : false
   )
 
-  type GameMode = 'title' | 'original' | 'timeAttack'
+  type GameMode = 'title' | 'original' | 'timeAttack' | 'wordLength'
   const [gameMode, setGameMode] = useState<GameMode>('title')
   const [activeSolution, setActiveSolution] = useState(solution)
   const [countdown, setCountdown] = useState('')
   const [timeRemaining, setTimeRemaining] = useState(60000)
   const [isTimerRunning, setIsTimerRunning] = useState(false)
+  // word length mode state
+  const [isWordLengthMenuOpen, setIsWordLengthMenuOpen] = useState(false) // length menu showing on title screen
+  const [wordLength, setWordLength] = useState(5) // length the player picked
+  const [isLoadingWord, setIsLoadingWord] = useState(false) // waiting for the API
+  const [wordLoadError, setWordLoadError] = useState(false) // API request failed
+  const [isCheckingWord, setIsCheckingWord] = useState(false) // waiting for the dictionary API
+  // number of boxes per row: the picked length in word length mode, otherwise the answer's length
+  const currentWordLength =
+    gameMode === 'wordLength' ? wordLength : activeSolution.length
 
   useEffect(() => {
     // Show the welcome instructions only after entering Original Mode.
@@ -253,6 +264,33 @@ function App() {
     setGameMode('timeAttack')
   }
 
+  // start a new word length game: reset the board, then fetch an answer of the picked length
+  const startWordLengthMode = async (length: number) => {
+    setWordLength(length)
+    setActiveSolution('') // no answer until the API responds
+    setWordLoadError(false)
+    setIsLoadingWord(true)
+    setGuesses([])
+    setCurrentGuess('')
+    setIsGameWon(false)
+    setIsGameLost(false)
+    setCountdown('')
+    setIsTimerRunning(false)
+    setIsWordLengthMenuOpen(false)
+    setGameMode('wordLength')
+
+    // ask random word API for the answer; show an error with a retry link if it fails
+    try {
+      const word = await getRandomLevelWord(length)
+      setActiveSolution(word)
+    } catch (e) {
+      console.log(e)
+      setWordLoadError(true)
+    } finally {
+      setIsLoadingWord(false)
+    }
+  }
+
   const returnToTitle = () => {
     setCountdown('')
     setIsTimerRunning(false)
@@ -261,11 +299,14 @@ function App() {
 
   const onChar = (value: string) => {
     if (
-      unicodeLength(`${currentGuess}${value}`) <= solution.length &&
+      unicodeLength(`${currentGuess}${value}`) <= currentWordLength &&
       guesses.length < MAX_CHALLENGES &&
       !isGameWon &&
       !isGameLost &&
-      (gameMode !== 'timeAttack' || isTimerRunning)
+      (gameMode !== 'timeAttack' || isTimerRunning) &&
+      // in word length mode, block typing until the answer has loaded
+      (gameMode !== 'wordLength' || activeSolution !== '') &&
+      !isCheckingWord
     ) {
       setCurrentGuess(`${currentGuess}${value}`)
     }
@@ -275,7 +316,8 @@ function App() {
     if (
       isGameWon ||
       isGameLost ||
-      (gameMode === 'timeAttack' && !isTimerRunning)
+      (gameMode === 'timeAttack' && !isTimerRunning) ||
+      isCheckingWord
     )
       return
     setCurrentGuess(
@@ -283,23 +325,48 @@ function App() {
     )
   }
 
-  const onEnter = () => {
+  const onEnter = async () => {
     if (
       isGameWon ||
       isGameLost ||
-      (gameMode === 'timeAttack' && !isTimerRunning)
+      (gameMode === 'timeAttack' && !isTimerRunning) ||
+      isCheckingWord
     ) {
       return
     }
 
-    if (!(unicodeLength(currentGuess) === solution.length)) {
+    if (!(unicodeLength(currentGuess) === currentWordLength)) {
       setCurrentRowClass('jiggle')
       return showErrorAlert(NOT_ENOUGH_LETTERS_MESSAGE, {
         onClose: clearCurrentRowClass,
       })
     }
 
-    if (!isWordInWordList(currentGuess)) {
+    if (gameMode === 'wordLength') {
+      // the answer is always accepted, even if the dictionary doesn't know it
+      if (currentGuess !== activeSolution) {
+        // check the guess with the dictionary API; typing is blocked while waiting
+        setIsCheckingWord(true)
+        let isValid: boolean
+        try {
+          isValid = await isValidLevelWord(currentGuess)
+        } catch (e) {
+          console.log(e)
+          setCurrentRowClass('jiggle')
+          return showErrorAlert(WORD_CHECK_FAILED_MESSAGE, {
+            onClose: clearCurrentRowClass,
+          })
+        } finally {
+          setIsCheckingWord(false)
+        }
+        if (!isValid) {
+          setCurrentRowClass('jiggle')
+          return showErrorAlert(WORD_NOT_FOUND_MESSAGE, {
+            onClose: clearCurrentRowClass,
+          })
+        }
+      }
+    } else if (!isWordInWordList(currentGuess)) {
       setCurrentRowClass('jiggle')
       return showErrorAlert(WORD_NOT_FOUND_MESSAGE, {
         onClose: clearCurrentRowClass,
@@ -322,12 +389,12 @@ function App() {
     // chars have been revealed
     setTimeout(() => {
       setIsRevealing(false)
-    }, REVEAL_TIME_MS * solution.length)
+    }, REVEAL_TIME_MS * currentWordLength)
 
     const winningWord = currentGuess === activeSolution
 
     if (
-      unicodeLength(currentGuess) === solution.length &&
+      unicodeLength(currentGuess) === currentWordLength &&
       guesses.length < MAX_CHALLENGES &&
       !isGameWon
     ) {
@@ -361,9 +428,32 @@ function App() {
       <Div100vh>
         <div className="mode-title-screen">
           <h1>WORDLE</h1>
-          <p>Choose your game mode</p>
-          <button onClick={startOriginalMode}>Original Mode</button>
-          <button onClick={startTimeAttack}>Time Attack Mode</button>
+          {/* title screen shows either the length menu or the mode list */}
+          {isWordLengthMenuOpen ? (
+            <>
+              <p>Choose a word length</p>
+              {[4, 5, 6, 7].map((length) => (
+                <button
+                  key={length}
+                  onClick={() => startWordLengthMode(length)}
+                >
+                  {length} Letters
+                </button>
+              ))}
+              <button onClick={() => setIsWordLengthMenuOpen(false)}>
+                Back
+              </button>
+            </>
+          ) : (
+            <>
+              <p>Choose your game mode</p>
+              <button onClick={startOriginalMode}>Original Mode</button>
+              <button onClick={startTimeAttack}>Time Attack Mode</button>
+              <button onClick={() => setIsWordLengthMenuOpen(true)}>
+                Word Length
+              </button>
+            </>
+          )}
         </div>
       </Div100vh>
     )
@@ -398,6 +488,24 @@ function App() {
             {countdown ? countdown : formattedTime}
           </div>
         )}
+        {/* word length mode: loading message, or an error with a retry link */}
+        {gameMode === 'wordLength' && (isLoadingWord || wordLoadError) && (
+          <div className="flex items-center justify-center gap-2 text-gray-600 dark:text-gray-300">
+            {isLoadingWord ? (
+              <p>Loading word...</p>
+            ) : (
+              <>
+                <p>Couldn't load a word.</p>
+                <button
+                  className="underline"
+                  onClick={() => startWordLengthMode(wordLength)}
+                >
+                  Try again
+                </button>
+              </>
+            )}
+          </div>
+        )}
         {gameMode === 'original' && !isLatestGame && (
           <div className="flex items-center justify-center">
             <ClockIcon className="h-6 w-6 stroke-gray-600 dark:stroke-gray-300" />
@@ -411,6 +519,7 @@ function App() {
           <div className="flex grow flex-col justify-center pb-6 short:pb-2">
             <Grid
               solution={activeSolution}
+              solutionLength={currentWordLength}
               guesses={guesses}
               currentGuess={currentGuess}
               isRevealing={isRevealing}
@@ -490,6 +599,26 @@ function App() {
               </div>
             </div>
           )}
+          {/* word length mode result, shown after the last row finishes flipping */}
+          {gameMode === 'wordLength' &&
+            (isGameWon || isGameLost) &&
+            !isRevealing && (
+              <div className="time-attack-result">
+                <div>
+                  <h2>{isGameWon ? 'Congratulations!' : 'Out of guesses!'}</h2>
+                  <p>
+                    {isGameWon
+                      ? `You found the ${wordLength}-letter word!`
+                      : `The word was ${activeSolution}.`}
+                  </p>
+                  {/* new word of the same length */}
+                  <button onClick={() => startWordLengthMode(wordLength)}>
+                    Play Again
+                  </button>
+                  <button onClick={returnToTitle}>Title</button>
+                </div>
+              </div>
+            )}
           <AlertContainer />
         </div>
       </div>
