@@ -26,6 +26,7 @@
     "@types/react": "^17.0.38",
     "@types/react-dom": "^17.0.11",
     "@types/ua-parser-js": "^0.7.36",
+    "axios": "^1.7.9",
     "classnames": "^2.3.1",
     "date-fns": "^2.29.1",
     "egoroof-blowfish": "^2.2.2",
@@ -75,7 +76,8 @@
   },
   "jest": {
     "moduleNameMapper": {
-      "@/(.*)": "<rootDir>/src/$1"
+      "@/(.*)": "<rootDir>/src/$1",
+      "^axios$": "axios/dist/node/axios.cjs"
     }
   }
 }
