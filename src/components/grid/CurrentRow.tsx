@@ -9,9 +9,7 @@ type Props = {
 
 export const CurrentRow = ({ guess, className, solutionLength }: Props) => {
   const splitGuess = unicodeSplit(guess)
-  const emptyCells = Array.from(
-    Array(Math.max(0, solutionLength - splitGuess.length))
-  )
+  const emptyCells = Array.from(Array(solutionLength - splitGuess.length))
   const classes = `flex justify-center mb-1 ${className}`
 
   return (

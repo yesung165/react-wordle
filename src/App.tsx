@@ -1,6 +1,7 @@
 import './App.css'
 
-import { ClockIcon } from '@heroicons/react/outline'
+import { ClockIcon, InformationCircleIcon } from '@heroicons/react/outline'
+import { BadgeCheckIcon, HeartIcon } from '@heroicons/react/solid'
 import { format } from 'date-fns'
 import { default as GraphemeSplitter } from 'grapheme-splitter'
 import { useEffect, useState } from 'react'
@@ -27,7 +28,7 @@ import {
   CORRECT_WORD_MESSAGE,
   DISCOURAGE_INAPP_BROWSER_TEXT,
   GAME_COPIED_MESSAGE,
-  HARD_MODE_ALERT_MESSAGE,
+  GAME_TITLE,
   NOT_ENOUGH_LETTERS_MESSAGE,
   SHARE_FAILURE_TEXT,
   WIN_MESSAGES,
@@ -39,14 +40,11 @@ import { useAlert } from './context/AlertContext'
 import { isInAppBrowser } from './lib/browser'
 import { getRandomLevelWord, isValidLevelWord } from './lib/levelWordApi'
 import {
-  getStoredIsHighContrastMode,
   loadGameStateFromLocalStorage,
   saveGameStateToLocalStorage,
-  setStoredIsHighContrastMode,
 } from './lib/localStorage'
 import { addStatsForCompletedGame, loadStats } from './lib/stats'
 import {
-  findFirstUnusedReveal,
   getGameDate,
   getIsLatestGame,
   isWordInWordList,
@@ -55,6 +53,10 @@ import {
   solutionGameDate,
   unicodeLength,
 } from './lib/words'
+
+const CHALLENGE_WORD_LENGTHS = [3, 5, 7]
+const CHALLENGE_WINS_PER_STAGE = 3
+const CHALLENGE_LIVES = 10
 
 function App() {
   const isLatestGame = getIsLatestGame()
@@ -81,9 +83,6 @@ function App() {
       ? true
       : false
   )
-  const [isHighContrastMode, setIsHighContrastMode] = useState(
-    getStoredIsHighContrastMode()
-  )
   const [isRevealing, setIsRevealing] = useState(false)
   const [guesses, setGuesses] = useState<string[]>(() => {
     const loaded = loadGameStateFromLocalStorage(isLatestGame)
@@ -105,13 +104,12 @@ function App() {
 
   const [stats, setStats] = useState(() => loadStats())
 
-  const [isHardMode, setIsHardMode] = useState(
-    localStorage.getItem('gameMode')
-      ? localStorage.getItem('gameMode') === 'hard'
-      : false
-  )
-
-  type GameMode = 'title' | 'original' | 'timeAttack' | 'wordLength'
+  type GameMode =
+    | 'title'
+    | 'original'
+    | 'timeAttack'
+    | 'wordLength'
+    | 'challenge'
   const [gameMode, setGameMode] = useState<GameMode>('title')
   const [activeSolution, setActiveSolution] = useState(solution)
   const [countdown, setCountdown] = useState('')
@@ -123,9 +121,21 @@ function App() {
   const [isLoadingWord, setIsLoadingWord] = useState(false) // waiting for the API
   const [wordLoadError, setWordLoadError] = useState(false) // API request failed
   const [isCheckingWord, setIsCheckingWord] = useState(false) // waiting for the dictionary API
+  const [challengeStage, setChallengeStage] = useState(1)
+  const [challengeWins, setChallengeWins] = useState(0)
+  const [challengeLives, setChallengeLives] = useState(CHALLENGE_LIVES)
+  const [isChallengeTransitioning, setIsChallengeTransitioning] =
+    useState(false)
+  const [challengeFailedAnswer, setChallengeFailedAnswer] = useState<
+    string | null
+  >(null)
   // number of boxes per row: the picked length in word length mode, otherwise the answer's length
   const currentWordLength =
-    gameMode === 'wordLength' ? wordLength : activeSolution.length
+    gameMode === 'wordLength'
+      ? wordLength
+      : gameMode === 'challenge'
+      ? CHALLENGE_WORD_LENGTHS[challengeStage - 1]
+      : activeSolution.length
 
   useEffect(() => {
     // Show the welcome instructions only after entering Original Mode.
@@ -151,31 +161,11 @@ function App() {
     } else {
       document.documentElement.classList.remove('dark')
     }
-
-    if (isHighContrastMode) {
-      document.documentElement.classList.add('high-contrast')
-    } else {
-      document.documentElement.classList.remove('high-contrast')
-    }
-  }, [isDarkMode, isHighContrastMode])
+  }, [isDarkMode])
 
   const handleDarkMode = (isDark: boolean) => {
     setIsDarkMode(isDark)
     localStorage.setItem('theme', isDark ? 'dark' : 'light')
-  }
-
-  const handleHardMode = (isHard: boolean) => {
-    if (guesses.length === 0 || localStorage.getItem('gameMode') === 'hard') {
-      setIsHardMode(isHard)
-      localStorage.setItem('gameMode', isHard ? 'hard' : 'normal')
-    } else {
-      showErrorAlert(HARD_MODE_ALERT_MESSAGE)
-    }
-  }
-
-  const handleHighContrastMode = (isHighContrast: boolean) => {
-    setIsHighContrastMode(isHighContrast)
-    setStoredIsHighContrastMode(isHighContrast)
   }
 
   const clearCurrentRowClass = () => {
@@ -291,6 +281,45 @@ function App() {
     }
   }
 
+  const loadChallengeStage = async (stage: number, wins: number) => {
+    setChallengeStage(stage)
+    setChallengeWins(wins)
+    setActiveSolution('')
+    setWordLoadError(false)
+    setIsLoadingWord(true)
+    setGuesses([])
+    setCurrentGuess('')
+    setIsGameWon(false)
+    setIsGameLost(false)
+    setIsChallengeTransitioning(false)
+    setChallengeFailedAnswer(null)
+    setGameMode('challenge')
+
+    try {
+      const word = await getRandomLevelWord(CHALLENGE_WORD_LENGTHS[stage - 1])
+      setActiveSolution(word)
+    } catch (e) {
+      console.log(e)
+      setWordLoadError(true)
+    } finally {
+      setIsLoadingWord(false)
+    }
+  }
+
+  const startChallenge = () => {
+    setChallengeLives(CHALLENGE_LIVES)
+    void loadChallengeStage(1, 0)
+  }
+
+  const continueChallengeAfterLoss = () => {
+    setChallengeFailedAnswer(null)
+    if (challengeLives === 0) {
+      setIsGameLost(true)
+      return
+    }
+    void loadChallengeStage(challengeStage, 0)
+  }
+
   const returnToTitle = () => {
     setCountdown('')
     setIsTimerRunning(false)
@@ -303,9 +332,11 @@ function App() {
       guesses.length < MAX_CHALLENGES &&
       !isGameWon &&
       !isGameLost &&
+      !isChallengeTransitioning &&
       (gameMode !== 'timeAttack' || isTimerRunning) &&
       // in word length mode, block typing until the answer has loaded
-      (gameMode !== 'wordLength' || activeSolution !== '') &&
+      ((gameMode !== 'wordLength' && gameMode !== 'challenge') ||
+        activeSolution !== '') &&
       !isCheckingWord
     ) {
       setCurrentGuess(`${currentGuess}${value}`)
@@ -316,6 +347,7 @@ function App() {
     if (
       isGameWon ||
       isGameLost ||
+      isChallengeTransitioning ||
       (gameMode === 'timeAttack' && !isTimerRunning) ||
       isCheckingWord
     )
@@ -329,6 +361,7 @@ function App() {
     if (
       isGameWon ||
       isGameLost ||
+      isChallengeTransitioning ||
       (gameMode === 'timeAttack' && !isTimerRunning) ||
       isCheckingWord
     ) {
@@ -342,7 +375,7 @@ function App() {
       })
     }
 
-    if (gameMode === 'wordLength') {
+    if (gameMode === 'wordLength' || gameMode === 'challenge') {
       // the answer is always accepted, even if the dictionary doesn't know it
       if (currentGuess !== activeSolution) {
         // check the guess with the dictionary API; typing is blocked while waiting
@@ -373,17 +406,6 @@ function App() {
       })
     }
 
-    // enforce hard mode - all guesses must contain all previously revealed letters
-    if (isHardMode && gameMode === 'original') {
-      const firstMissingReveal = findFirstUnusedReveal(currentGuess, guesses)
-      if (firstMissingReveal) {
-        setCurrentRowClass('jiggle')
-        return showErrorAlert(firstMissingReveal, {
-          onClose: clearCurrentRowClass,
-        })
-      }
-    }
-
     setIsRevealing(true)
     // turn this back off after all
     // chars have been revealed
@@ -402,6 +424,22 @@ function App() {
       setCurrentGuess('')
 
       if (winningWord) {
+        if (gameMode === 'challenge') {
+          setIsChallengeTransitioning(true)
+          window.setTimeout(() => {
+            const nextWins = challengeWins + 1
+            if (nextWins === CHALLENGE_WINS_PER_STAGE) {
+              if (challengeStage === CHALLENGE_WORD_LENGTHS.length) {
+                setIsGameWon(true)
+              } else {
+                void loadChallengeStage(challengeStage + 1, 0)
+              }
+            } else {
+              void loadChallengeStage(challengeStage, nextWins)
+            }
+          }, REVEAL_TIME_MS * currentWordLength)
+          return
+        }
         if (isLatestGame && gameMode === 'original') {
           setStats(addStatsForCompletedGame(stats, guesses.length))
         }
@@ -409,6 +447,15 @@ function App() {
       }
 
       if (guesses.length === MAX_CHALLENGES - 1) {
+        if (gameMode === 'challenge') {
+          setIsChallengeTransitioning(true)
+          window.setTimeout(() => {
+            const remainingLives = challengeLives - 1
+            setChallengeLives(remainingLives)
+            setChallengeFailedAnswer(activeSolution)
+          }, REVEAL_TIME_MS * currentWordLength)
+          return
+        }
         if (isLatestGame && gameMode === 'original') {
           setStats(addStatsForCompletedGame(stats, guesses.length + 1))
         }
@@ -427,7 +474,16 @@ function App() {
     return (
       <Div100vh>
         <div className="mode-title-screen">
-          <h1>WORDLE</h1>
+          <button
+            type="button"
+            className="mode-title-info"
+            aria-label="Game information"
+            title="Game information"
+            onClick={() => setIsInfoModalOpen(true)}
+          >
+            <InformationCircleIcon className="h-6 w-6" />
+          </button>
+          <h1>{GAME_TITLE}</h1>
           {/* title screen shows either the length menu or the mode list */}
           {isWordLengthMenuOpen ? (
             <>
@@ -449,11 +505,16 @@ function App() {
               <p>Choose your game mode</p>
               <button onClick={startOriginalMode}>Original Mode</button>
               <button onClick={startTimeAttack}>Time Attack Mode</button>
+              <button onClick={startChallenge}>Challenge Mode</button>
               <button onClick={() => setIsWordLengthMenuOpen(true)}>
-                Word Length
+                Word Length Mode
               </button>
             </>
           )}
+          <InfoModal
+            isOpen={isInfoModalOpen}
+            handleClose={() => setIsInfoModalOpen(false)}
+          />
         </div>
       </Div100vh>
     )
@@ -477,6 +538,7 @@ function App() {
     <Div100vh>
       <div className="flex h-full flex-col">
         <Navbar
+          onReturnToTitle={returnToTitle}
           setIsInfoModalOpen={setIsInfoModalOpen}
           setIsStatsModalOpen={setIsStatsModalOpen}
           setIsDatePickerModalOpen={setIsDatePickerModalOpen}
@@ -488,24 +550,55 @@ function App() {
             {countdown ? countdown : formattedTime}
           </div>
         )}
-        {/* word length mode: loading message, or an error with a retry link */}
-        {gameMode === 'wordLength' && (isLoadingWord || wordLoadError) && (
-          <div className="flex items-center justify-center gap-2 text-gray-600 dark:text-gray-300">
-            {isLoadingWord ? (
-              <p>Loading word...</p>
-            ) : (
-              <>
-                <p>Couldn't load a word.</p>
-                <button
-                  className="underline"
-                  onClick={() => startWordLengthMode(wordLength)}
-                >
-                  Try again
-                </button>
-              </>
-            )}
+        {gameMode === 'challenge' && (
+          <div className="challenge-status" aria-label="Challenge progress">
+            <div className="challenge-progress">
+              <BadgeCheckIcon className="h-5 w-5" />
+              <span>
+                Stage {challengeStage} · {challengeWins}/
+                {CHALLENGE_WINS_PER_STAGE}
+              </span>
+            </div>
+            <div
+              className="challenge-hearts"
+              aria-label={`${challengeLives} lives remaining`}
+            >
+              {Array.from({ length: CHALLENGE_LIVES }, (_, index) => (
+                <HeartIcon
+                  key={index}
+                  className={`challenge-heart ${
+                    index < challengeLives
+                      ? 'challenge-heart-active'
+                      : 'challenge-heart-lost'
+                  }`}
+                />
+              ))}
+            </div>
           </div>
         )}
+        {/* word length mode: loading message, or an error with a retry link */}
+        {(gameMode === 'wordLength' || gameMode === 'challenge') &&
+          (isLoadingWord || wordLoadError) && (
+            <div className="flex items-center justify-center gap-2 text-gray-600 dark:text-gray-300">
+              {isLoadingWord ? (
+                <p>Loading word...</p>
+              ) : (
+                <>
+                  <p>Couldn't load a word.</p>
+                  <button
+                    className="underline"
+                    onClick={() =>
+                      gameMode === 'challenge'
+                        ? loadChallengeStage(challengeStage, challengeWins)
+                        : startWordLengthMode(wordLength)
+                    }
+                  >
+                    Try again
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         {gameMode === 'original' && !isLatestGame && (
           <div className="flex items-center justify-center">
             <ClockIcon className="h-6 w-6 stroke-gray-600 dark:stroke-gray-300" />
@@ -557,9 +650,9 @@ function App() {
               setIsStatsModalOpen(false)
               setIsMigrateStatsModalOpen(true)
             }}
-            isHardMode={isHardMode}
+            isHardMode={false}
             isDarkMode={isDarkMode}
-            isHighContrastMode={isHighContrastMode}
+            isHighContrastMode={false}
             numberOfGuessesMade={guesses.length}
           />
           <DatePickerModal
@@ -578,12 +671,8 @@ function App() {
           <SettingsModal
             isOpen={isSettingsModalOpen}
             handleClose={() => setIsSettingsModalOpen(false)}
-            isHardMode={isHardMode}
-            handleHardMode={handleHardMode}
             isDarkMode={isDarkMode}
             handleDarkMode={handleDarkMode}
-            isHighContrastMode={isHighContrastMode}
-            handleHighContrastMode={handleHighContrastMode}
           />
           {gameMode === 'timeAttack' && (isGameWon || isGameLost) && (
             <div className="time-attack-result">
@@ -615,6 +704,31 @@ function App() {
                   <button onClick={() => startWordLengthMode(wordLength)}>
                     Play Again
                   </button>
+                  <button onClick={returnToTitle}>Title</button>
+                </div>
+              </div>
+            )}
+          {gameMode === 'challenge' && challengeFailedAnswer && (
+            <div className="time-attack-result" role="dialog" aria-modal="true">
+              <div>
+                <h2>The word was</h2>
+                <p className="challenge-answer">{challengeFailedAnswer}</p>
+                <button onClick={continueChallengeAfterLoss}>Continue</button>
+              </div>
+            </div>
+          )}
+          {gameMode === 'challenge' &&
+            (isGameWon || isGameLost) &&
+            !isRevealing && (
+              <div className="time-attack-result">
+                <div>
+                  <h2>{isGameWon ? 'Challenge complete!' : 'Game over'}</h2>
+                  <p>
+                    {isGameWon
+                      ? 'You cleared all three challenge stages!'
+                      : 'You ran out of hearts.'}
+                  </p>
+                  <button onClick={startChallenge}>Play Again</button>
                   <button onClick={returnToTitle}>Title</button>
                 </div>
               </div>
